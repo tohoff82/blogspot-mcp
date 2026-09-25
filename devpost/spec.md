@@ -86,7 +86,10 @@ BLOGGER_TOKEN_FILE=/absolute/path/outside/repository/blogger-token.json
 ```
 
 - `BLOGGER_BLOG_ID` is a non-empty decimal Blogger blog identifier and is never accepted from an MCP caller.
-- Both file paths must be absolute, resolve outside the repository, identify regular files where a file must already exist, and have no group/other permission bits on POSIX systems.
+- Both file paths must be absolute and resolve outside the repository. Their existence checks are phase-specific:
+  - `BLOGGER_OAUTH_CLIENT_FILE` must already exist as a non-symlink regular file owned by the current user, with no group/other permission bits on POSIX systems.
+  - During `npm run auth`, `BLOGGER_TOKEN_FILE` may be absent. Its existing parent directory must resolve outside the repository, be owned by the current user, and not be group/other writable. If the token target already exists, it must itself be a non-symlink regular file with owner-only permissions before replacement is allowed.
+  - During normal MCP startup, `BLOGGER_TOKEN_FILE` must already exist as a non-symlink regular file owned by the current user, with no group/other permission bits.
 - `.env.example` contains names and placeholder path shapes only. `.env`, client files, token files, and common credential filename patterns are ignored by Git.
 - Environment variables are the only configuration authority. A local `.env` is merely one way Node populates `process.env`; there is no second config-file schema or precedence system.
 
@@ -97,7 +100,7 @@ BLOGGER_TOKEN_FILE=/absolute/path/outside/repository/blogger-token.json
 3. Run `npm ci`, then `npm run auth`.
 4. The auth command binds an HTTP listener to `127.0.0.1` on an available port, generates random `state`, generates a PKCE verifier/challenge using `S256`, requests `access_type=offline` with the Blogger scope, and opens the system browser.
 5. The loopback callback must contain the expected state and an authorization code. State comparison is timing-safe. The command exchanges the code locally using the retained PKCE verifier.
-6. The command requires a refresh token, writes the credential material atomically to `BLOGGER_TOKEN_FILE` with mode `0600`, and emits only a bounded success message containing no token or secret value.
+6. The command requires a refresh token, revalidates the token target immediately before replacement, writes a same-directory temporary file with mode `0600`, and atomically renames it to `BLOGGER_TOKEN_FILE`. A first-time token target need not exist. The command emits only a bounded success message containing no token or secret value.
 7. The loopback server closes on success, rejection, timeout, or error. OAuth codes, tokens, client secrets, and full callback URLs are never logged.
 
 Google continues to support loopback IP redirects for Desktop OAuth clients. [Google loopback flow guidance](https://developers.google.com/identity/protocols/oauth2/resources/loopback-migration) and [OAuth for installed apps](https://developers.google.com/identity/protocols/oauth2/native-app).
@@ -115,7 +118,7 @@ npm start
 `npm start` loads an ignored `.env` if present and starts `dist/index.js`; exported environment variables also work. Before stdio is connected, startup:
 
 1. validates all three environment values;
-2. validates both external JSON file shapes and safe file permissions;
+2. requires both external JSON files to exist and validates their shapes, ownership, regular-file status, non-symlink resolution, and safe file permissions;
 3. loads the refresh credential into an OAuth client restricted to `https://www.googleapis.com/auth/blogger`;
 4. obtains or refreshes an access token; and
 5. only then registers and serves the MCP tools.
@@ -165,13 +168,13 @@ There is no visual application UI. The interface should feel like a focused Unix
 
 Implements `prd.md > Input Contract` and `prd.md > Interaction Surface`.
 
-Reads only the three named environment variables, rejects missing/relative/unsafe paths, validates file shapes and permissions, constructs the OAuth credential provider and narrow adapter, and refuses to connect stdio until authentication readiness succeeds. It never accepts caller overrides.
+Reads only the three named environment variables, rejects missing/relative/unsafe paths, applies the auth-bootstrap or runtime file-existence rules for the active command, validates applicable file shapes and permissions, constructs the OAuth credential provider and narrow adapter, and refuses to connect stdio until runtime authentication readiness succeeds. It never accepts caller overrides.
 
 ### OAuth Bootstrap Command
 
 Implements the accepted local authentication boundary supporting `prd.md > Interaction Surface`.
 
-Runs only through `npm run auth`. It performs Desktop OAuth with loopback `127.0.0.1`, an ephemeral port, random state, PKCE S256, offline access, and the Blogger scope. It atomically stores credential material outside the repository with owner-only permissions. It is not imported into the MCP tool registry.
+Runs only through `npm run auth`. It permits an absent first-use token target after validating its existing parent directory and resolved outside-repository path. It performs Desktop OAuth with loopback `127.0.0.1`, an ephemeral port, random state, PKCE S256, offline access, and the Blogger scope, then atomically stores credential material outside the repository with owner-only permissions. It is not imported into the MCP tool registry.
 
 ### OAuth Credential Provider
 
@@ -188,19 +191,21 @@ Registers exactly two tools, with explicit Zod input and output schemas:
 - `create_draft`
 - `inspect_draft`
 
-It registers no resources or prompts. Each handler returns `structuredContent` validated against its output schema and one `TextContent` item containing `JSON.stringify(structuredContent)`. The text is a compatibility projection of the same object, not an independently composed result.
+It registers no resources or prompts. MCP ingress schemas are deliberately permissive at the product-field level: they require a tool-argument object but admit missing or wrongly typed `title`, `body`, `labels`, `source`, `post_id`, and `expected` values into the handler as `unknown`. The strict domain validator then returns the PRD's schema-valid `VALIDATION_FAILED` result with stable issues. A malformed JSON-RPC request or non-object tool-argument envelope remains an MCP protocol error because it never constitutes a product request.
+
+Each handler returns `structuredContent` validated against its output schema and one `TextContent` item containing `JSON.stringify(structuredContent)`. The text is a compatibility projection of the same object, not an independently composed result.
 
 ### `create_draft` Tool Handler
 
 Implements `prd.md > Create Draft Behavior`, `prd.md > Retry Boundary`, and `prd.md > Create Outcomes`.
 
-Accepts only the authored projection. It validates and normalizes locally, requests one adapter insert, performs read-back when a post ID is available, delegates comparison to the shared verifier, and maps evidence to the create result union. It contains no retry loop and never calls insert more than once per invocation.
+Accepts the permissive MCP ingress object, validates it into an `AuthoredProjection` inside the domain layer, and returns `VALIDATION_FAILED` for product-defined malformed fields before Blogger is contacted. For valid input it requests one adapter insert, performs read-back when a post ID is available, delegates comparison to the shared verifier, and maps evidence to the create result union. It contains no retry loop and never calls insert more than once per invocation.
 
 ### `inspect_draft` Tool Handler
 
 Implements `prd.md > Inspect and Verify Behavior` and `prd.md > Inspect Outcomes`.
 
-Accepts a Blogger post ID plus the expected authored projection. It performs one read-only adapter get from the configured blog and maps the result through the shared verifier. It cannot update, repair, recreate, publish, or delete.
+Accepts a permissive MCP ingress object, validates its Blogger post ID and expected projection inside the domain layer, and returns `VALIDATION_FAILED` for product-defined malformed fields. For valid input it performs one read-only adapter get from the configured blog and maps the result through the shared verifier. It cannot update, repair, recreate, publish, or delete.
 
 ### Projection Validator
 
@@ -230,7 +235,7 @@ Pure domain code that compares expected and observed target, status, title, body
 
 Implements `prd.md > Create Draft Behavior` and `prd.md > Inspect and Verify Behavior`.
 
-Constructs only the two approved Blogger URLs from the fixed base URL, configured blog ID, and validated post ID. It obtains authorization headers internally, sends native `fetch` requests, validates remote JSON with Zod, and classifies HTTP/transport failures. It exposes typed `insertDraft` and `getPostAdmin` methods—not arbitrary URLs, methods, blog IDs, query parameters, or generic authenticated fetch.
+Constructs only the two approved Blogger URLs from the fixed base URL, configured blog ID, and validated post ID. It obtains authorization headers internally, sends native `fetch` requests, validates remote JSON with Zod, and classifies HTTP/transport failures. Every Blogger POST and GET has an independent fixed 15-second deadline implemented with `AbortSignal.timeout(BLOGGER_REQUEST_TIMEOUT_MS)`, where the internal constant is `15_000`; it is not caller input or environment configuration. It exposes typed `insertDraft` and `getPostAdmin` methods—not arbitrary URLs, methods, blog IDs, query parameters, timeout overrides, or generic authenticated fetch.
 
 ### Result Mapper
 
@@ -263,19 +268,28 @@ type AuthoredProjection = {
 ### `create_draft` Input
 
 ```ts
-type CreateDraftInput = AuthoredProjection;
+type CreateDraftIngress = {
+  title?: unknown;
+  body?: unknown;
+  labels?: unknown;
+  source?: unknown;
+  [additionalField: string]: unknown;
+};
 ```
+
+The registered MCP input schema admits these product fields as optional `unknown` values and preserves unexpected fields for the domain validator to reject with stable issues. Only successful strict validation produces an `AuthoredProjection`. This intentionally prevents MCP SDK pre-handler validation from converting approved product-validation cases into `InvalidParams`.
 
 ### `inspect_draft` Input
 
 ```ts
-type InspectDraftInput = {
-  post_id: string;
-  expected: AuthoredProjection;
+type InspectDraftIngress = {
+  post_id?: unknown;
+  expected?: unknown;
+  [additionalField: string]: unknown;
 };
 ```
 
-`post_id` is a required non-empty decimal Blogger post identifier. It is inserted only into the fixed post-ID path segment after validation.
+The strict domain validator requires `post_id` to be a non-empty decimal Blogger post identifier and `expected` to become an `AuthoredProjection`. The validated post ID is inserted only into the fixed post-ID path segment. Missing, non-string, or otherwise malformed product fields return `VALIDATION_FAILED`; only a non-object MCP argument envelope remains a protocol-level `InvalidParams` case.
 
 ### Structured Evidence
 
@@ -309,6 +323,12 @@ type RemotePostEvidence = {
     version_id: string;
   };
 };
+
+type ValidationIssue = {
+  path: string;
+  code: string;
+  message: string;
+};
 ```
 
 Unknown or sensitive response fields are not copied through. Raw OAuth responses, headers, tokens, client metadata, and entire raw Blogger payloads never appear in results.
@@ -326,9 +346,25 @@ type CreateOutcome =
   | "MISMATCH"
   | "REMOTE_EFFECT_UNKNOWN";
 
-type CreateDraftResult = {
+type ValidationFailedCreateResult = {
   action: "create_draft";
-  outcome: CreateOutcome;
+  outcome: "VALIDATION_FAILED";
+  message: string;
+  target: { blog_id: string };
+  requested_raw?: unknown;
+  issues: ValidationIssue[];
+  remote_effect: "none";
+  retry_safe: true;
+  error: {
+    code: "INPUT_VALIDATION_FAILED";
+    phase: "validation";
+    detail: string;
+  };
+};
+
+type ValidatedCreateResult = {
+  action: "create_draft";
+  outcome: Exclude<CreateOutcome, "VALIDATION_FAILED">;
   message: string;
   target: { blog_id: string };
   requested: AuthoredProjection;
@@ -338,22 +374,26 @@ type CreateDraftResult = {
   checks?: VerificationCheck[];
   error?: {
     code: string;
-    phase: "validation" | "auth" | "create" | "read_back" | "verification";
+    phase: "auth" | "create" | "read_back" | "verification";
     detail: string;
   };
 };
+
+type CreateDraftResult =
+  | ValidationFailedCreateResult
+  | ValidatedCreateResult;
 ```
 
 Outcome invariants:
 
-- `VALIDATION_FAILED`: no Blogger call; `remote_effect: "none"`; `retry_safe: true` after correcting input.
-- `CREATE_FAILED`: evidence establishes rejection before creation, such as an authenticated Blogger `400`, `401`, `403`, or other explicit non-retryable client response; `remote_effect: "none"`.
+- `VALIDATION_FAILED`: domain validation receives the permissive ingress object, makes no Blogger call, returns stable `issues`, may include `requested_raw`, and sets `remote_effect: "none"`; `retry_safe: true`. It never falsely types malformed input as `AuthoredProjection`.
+- `CREATE_FAILED`: authorization-header/token acquisition fails before `fetch` is issued, or Blogger returns a definitive client rejection establishing no creation (for example `400`, `401`, or `403`); `remote_effect: "none"`; `retry_safe: true`.
 - `REMOTE_EFFECT_UNKNOWN`: timeout, connection loss, `408`, `429`, `5xx`, or another condition where no reliable Blogger success response or post identity was received even though the request may have reached Blogger; `remote_effect: "unknown"`; `retry_safe: false`.
 - `CREATED_UNVERIFIED`: a Blogger `2xx` insert response or post identity establishes a draft effect, but the response cannot provide an ID for read-back, read-back fails, or another required fact is inconclusive; `remote_effect: "created"`; `retry_safe: false`.
 - `MISMATCH`: read-back succeeded and at least one material check is `MISMATCH`; `remote_effect: "created"`; `retry_safe: false`.
 - `VERIFIED`: all six checks are `MATCH`; `remote_effect: "created"`; `retry_safe: false`.
 
-No outcome after an insert attempt causes another insert.
+The insert-attempt boundary is crossed immediately before invoking `fetch` for the POST. Once crossed, an indeterminate effect cannot map to `CREATE_FAILED`; it must map to `REMOTE_EFFECT_UNKNOWN` with `retry_safe: false`. No outcome after an insert attempt causes another insert.
 
 ### Inspect Output
 
@@ -368,9 +408,23 @@ type InspectOutcome =
   | "REMOTE_UNKNOWN"
   | "VALIDATION_FAILED";
 
-type InspectDraftResult = {
+type ValidationFailedInspectResult = {
   action: "inspect_draft";
-  outcome: InspectOutcome;
+  outcome: "VALIDATION_FAILED";
+  message: string;
+  target: { blog_id: string; post_id?: string };
+  requested_raw?: unknown;
+  issues: ValidationIssue[];
+  error: {
+    code: "INPUT_VALIDATION_FAILED";
+    phase: "validation";
+    detail: string;
+  };
+};
+
+type ValidatedInspectResult = {
+  action: "inspect_draft";
+  outcome: Exclude<InspectOutcome, "VALIDATION_FAILED">;
   message: string;
   target: { blog_id: string; post_id: string };
   expected: AuthoredProjection;
@@ -378,10 +432,14 @@ type InspectDraftResult = {
   checks?: VerificationCheck[];
   error?: {
     code: string;
-    phase: "validation" | "auth" | "read" | "verification";
+    phase: "auth" | "read" | "verification";
     detail: string;
   };
 };
+
+type InspectDraftResult =
+  | ValidationFailedInspectResult
+  | ValidatedInspectResult;
 ```
 
 - Blogger `404` maps to `ABSENT`.
@@ -390,6 +448,12 @@ type InspectDraftResult = {
 - A readable post with any `MISMATCH` check maps to `MISMATCH`.
 - A readable post with an `UNKNOWN` required check but no confirmed mismatch maps to `REMOTE_UNKNOWN`.
 - Only six `MATCH` checks map to `VERIFIED`.
+
+### MCP `isError` Policy
+
+Every declared create and inspect outcome—including `VALIDATION_FAILED`, `CREATE_FAILED`, `CREATED_UNVERIFIED`, `MISMATCH`, `REMOTE_EFFECT_UNKNOWN`, `ABSENT`, `ACCESS_DENIED`, and `REMOTE_UNKNOWN`—is a normal schema-validating MCP tool result. The handler returns `structuredContent` conforming to the declared output union, the equivalent JSON `TextContent`, and either omits `isError` or sets `isError: false`.
+
+`isError: true` or a thrown tool exception is reserved for an unexpected internal defect that cannot truthfully be represented by the specified domain union, such as an invariant violation or programming error. Such a tool-level failure returns only a sanitized diagnostic, does not fabricate a declared outcome, and never includes credentials, tokens, authorization headers, raw secret-file content, or an unsanitized stack trace. This separation keeps all anticipated operational failures machine-branchable and subject to output-schema validation.
 
 ## Body Representation and Canonicalization
 
@@ -589,6 +653,24 @@ Authorization: Bearer <internal access token>
 
 The adapter consumes only `id`, `blog.id`, `status`, `title`, `content`, `labels`, and `customMetaData`. [Posts: get](https://developers.google.com/blogger/docs/3.0/reference/posts/get) and [Posts resource](https://developers.google.com/blogger/docs/3.0/reference/posts).
 
+### Blogger Request Deadlines
+
+The adapter defines one internal constant:
+
+```ts
+const BLOGGER_REQUEST_TIMEOUT_MS = 15_000;
+```
+
+Each POST and GET creates a fresh `AbortSignal.timeout(BLOGGER_REQUEST_TIMEOUT_MS)` and passes it to native `fetch`. The timeout is fixed for this POC: it is not accepted through MCP, configuration, or environment variables. Adapter tests use controlled timers and a non-resolving fetch double to prove that the signal aborts the request and reaches the required mapper branch.
+
+- POST authorization-header acquisition happens before the insert-attempt boundary. If it fails, no Blogger insert was issued: `CREATE_FAILED`, `remote_effect: "none"`, `retry_safe: true`.
+- A POST timeout after `fetch` is invoked crosses the effect boundary: `REMOTE_EFFECT_UNKNOWN`, `remote_effect: "unknown"`, `retry_safe: false`.
+- A create-flow GET timeout after a known `2xx` insert or post identity: `CREATED_UNVERIFIED`, `remote_effect: "created"`, `retry_safe: false`.
+- An inspect-flow GET timeout: `REMOTE_UNKNOWN`.
+- An inspect authorization-header acquisition failure before GET also maps to `REMOTE_UNKNOWN`, because current remote state was not established and Blogger did not conclusively refuse access.
+
+No timeout path invokes insert again.
+
 ### Quota, Cost, and Availability
 
 - The POC uses a real Google account, a Google Cloud OAuth client, Blogger API v3, and a dedicated permitted test blog.
@@ -603,12 +685,15 @@ The adapter consumes only `id`, `blog.id`, `status`, `title`, `content`, `labels
 `npm test` performs no live network calls and includes:
 
 - valid/invalid input coverage for both tools;
+- MCP ingress tests proving missing and wrongly typed product fields reach the domain validator and return schema-valid `VALIDATION_FAILED`, while only a non-object/protocol-invalid envelope becomes MCP `InvalidParams`;
 - exact body fixtures for line endings, paragraphs, `<br>`, entities, blank paragraphs, and unexpected remote HTML;
 - label deduplication, Unicode code-point counting, control/comma/whitespace rejection, and set comparison;
 - provenance property-order independence, schema validation, and mismatch coverage;
 - all create and inspect outcomes and their field invariants;
 - fake-adapter assertions proving every `create_draft` invocation calls insert zero or one times, never more;
-- adapter contract assertions for the exact base URL, configured target, HTTP methods, query parameters, body fields, and error mapping;
+- adapter contract assertions for the exact base URL, configured target, HTTP methods, query parameters, body fields, fixed 15-second abort signal, and pre-/post-attempt error mapping;
+- auth/bootstrap path tests proving a missing token target is allowed only during bootstrap, existing targets are revalidated before atomic replacement, and normal runtime requires the token file;
+- MCP result tests proving every declared domain outcome returns schema-valid `structuredContent` without `isError: true`, while unexpected invariant defects use the sanitized tool-error path;
 - stdout discipline and redaction tests for known credential-shaped fixtures;
 - startup tests proving invalid configuration fails before stdio connection; and
 - an MCP client `tools/list` test proving the complete advertised surface is exactly `create_draft` and `inspect_draft`, with explicit schemas and no extra tool.
@@ -659,6 +744,7 @@ The recorded demo and evidence must establish all items in `scope.md > What “W
 ## Important Failure Modes
 
 - **Configuration or credentials are missing, malformed, unsafe, or cannot refresh** → process exits before stdio becomes usable; stderr identifies the category and path variable without printing file contents or tokens.
+- **Runtime authorization-header acquisition fails before a create POST is issued** → return `CREATE_FAILED`, `remote_effect: "none"`, and `retry_safe: true`; no insert was attempted.
 - **The single insert has an inconclusive transport/server result** → return `REMOTE_EFFECT_UNKNOWN`, `remote_effect: "unknown"`, and `retry_safe: false`; do not retry.
 - **Insert returns an identity but read-back fails or omits a required fact** → return `CREATED_UNVERIFIED` with known identity/evidence and `retry_safe: false`; do not recreate.
 - **Read-back is complete but differs materially** → return `MISMATCH` with independently visible failed checks; never repair or update.
@@ -688,6 +774,11 @@ The recorded demo and evidence must establish all items in `scope.md > What “W
 - The learner required a committed npm lockfile.
 - The learner placed the absence-of-publish proof in a deterministic `tools/list` contract test rather than the live Blogger test.
 - The learner accepted exact plain-text/body algorithms and conservative product-owned label guardrails, with an early live boundary check that does not claim to establish Blogger's true maxima.
+- The learner required permissive MCP field ingress plus strict in-handler domain validation so approved malformed-product-input cases return structured `VALIDATION_FAILED` instead of pre-handler `InvalidParams`.
+- The learner required phase-specific token-path validation: absence is permitted only for first-use bootstrap, while runtime requires the safe token file to exist.
+- The learner accepted one fixed 15-second abortable deadline per Blogger POST or GET and the corresponding effect-aware timeout mappings.
+- The learner required every declared domain outcome to remain a schema-validating normal MCP result; `isError` is reserved for unexpected internal defects.
+- The learner completed the create invariant: pre-request auth failure or definitive client rejection is retry-safe `CREATE_FAILED`, while indeterminacy after the POST attempt boundary is non-retryable `REMOTE_EFFECT_UNKNOWN`.
 
 ### Useful Unknown Clarified
 
