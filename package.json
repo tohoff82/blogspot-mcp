@@ -9,11 +9,14 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "test": "vitest run"
+    "auth": "node --env-file-if-exists=.env dist/auth/bootstrap.js",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "test": "vitest run",
+    "test:live": "vitest run --config vitest.live.config.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.1.0",
+    "google-auth-library": "^11.1.0",
     "parse5": "^8.0.0",
     "zod": "^4.6.0"
   },
