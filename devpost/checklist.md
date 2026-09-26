@@ -5,13 +5,13 @@ status: approved
 
 # Build Checklist
 
-Build mode: pending learner choice after checklist approval
+Build mode: fast
 
 Git synchronization authority: After each mechanically verified slice, and after any mechanically verified final completion work that requires a commit, commit only that slice's intended changes with the specified message and push the resulting commit to the existing upstream/current branch on `origin`. Report the local commit SHA and successful remote sync. Do not force-push, rewrite history, reset destructively, create or delete branches, create tags or releases, create a PR, change repository visibility, or include unrelated pre-existing work. If the remote has diverged or a normal push is rejected, stop and report rather than resolving it destructively.
 
 ## Slices
 
-- [ ] **1. The complete draft-only MCP contract works against deterministic doubles**
+- [x] **1. The complete draft-only MCP contract works against deterministic doubles**
   Becomes usable: An MCP client can list exactly `create_draft` and `inspect_draft`, submit a valid authored projection, receive structured verification evidence, and observe validation or mismatch outcomes without contacting Blogger.
   Why now: This proves the unique kernel first: the caller-visible surface contains draft creation and read-only inspection but no publish capability. Bootstrapping, schemas, canonicalization, provenance, verification, handlers, and the first vertical contract test land together so later remote work is constrained by a working interface.
   PRD ref: `prd.md > The Core Journey` (steps 1-2 and 5-7); `prd.md > Interaction Surface`; `prd.md > Verification Semantics`; `prd.md > Durable Provenance`
