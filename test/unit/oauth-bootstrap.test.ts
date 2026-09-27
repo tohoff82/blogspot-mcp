@@ -43,6 +43,10 @@ describe("OAuth bootstrap", () => {
 
   it("uses loopback state, PKCE S256, offline access, and stores only bounded refresh metadata", async () => {
     let tokenClient: OAuth2Client | undefined;
+    const authorizationUrlFile = {
+      write: vi.fn(async (_url: string) => undefined),
+      remove: vi.fn(async () => undefined)
+    };
     const createClient = (clientId: string, clientSecret: string, redirectUri: string): OAuth2Client => {
       tokenClient = new OAuth2Client({ clientId, clientSecret, redirectUri });
       vi.spyOn(tokenClient, "getToken").mockResolvedValue({
@@ -59,6 +63,7 @@ describe("OAuth bootstrap", () => {
 
     await performOAuthBootstrap(config, {
       createClient,
+      authorizationUrlFile,
       launchBrowser: authorizationUrl => {
         const url = new URL(authorizationUrl);
         expect(url.searchParams.get("access_type")).toBe("offline");
@@ -80,6 +85,9 @@ describe("OAuth bootstrap", () => {
       codeVerifier: expect.any(String),
       redirect_uri: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/oauth2\/callback$/u)
     }));
+    expect(authorizationUrlFile.write).toHaveBeenCalledOnce();
+    expect(authorizationUrlFile.write).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/accounts\.google\.com\//u));
+    expect(authorizationUrlFile.remove).toHaveBeenCalledOnce();
     const stored = JSON.parse(await readFile(config.tokenFile, "utf8"));
     expect(stored).toEqual({
       refresh_token: "test-only-refresh-value",

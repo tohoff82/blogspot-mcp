@@ -7,6 +7,7 @@ import { loadConfig } from "../config.js";
 import { BLOGGER_SCOPE, createOAuth2Client, loadDesktopClient } from "./oauth-client.js";
 import { openBrowser } from "./open-browser.js";
 import { writeTokenAtomically, type StoredToken } from "./token-store.js";
+import { createAuthorizationUrlFile, type AuthorizationUrlFile } from "./authorization-url-file.js";
 
 const CALLBACK_PATH = "/oauth2/callback";
 const AUTH_TIMEOUT_MS = 300_000;
@@ -76,6 +77,8 @@ export async function performOAuthBootstrap(
   dependencies: {
     launchBrowser?: (url: string) => void | Promise<void>;
     createClient?: (clientId: string, clientSecret: string, redirectUri: string) => OAuth2Client;
+    authorizationUrlFile?: AuthorizationUrlFile;
+    report?: (message: "AUTHORIZATION_URL_FILE_READY" | "BROWSER_LAUNCH_SUCCEEDED") => void;
   } = {}
 ): Promise<void> {
   const desktopClient = await loadDesktopClient(config);
@@ -98,8 +101,13 @@ export async function performOAuthBootstrap(
       code_challenge: pkce.codeChallenge,
       code_challenge_method: CodeChallengeMethod.S256
     });
+    const authorizationUrlFile = dependencies.authorizationUrlFile ?? createAuthorizationUrlFile();
+    await authorizationUrlFile.write(authorizationUrl);
+    dependencies.report?.("AUTHORIZATION_URL_FILE_READY");
     await (dependencies.launchBrowser ?? openBrowser)(authorizationUrl);
+    dependencies.report?.("BROWSER_LAUNCH_SUCCEEDED");
     const code = await awaitAuthorizationCode(server, state);
+    await authorizationUrlFile.remove();
     const tokenResponse = await oauthClient.getToken({ code, codeVerifier: pkce.codeVerifier, redirect_uri: redirectUri });
     const refreshToken = tokenResponse.tokens.refresh_token;
     if (typeof refreshToken !== "string" || refreshToken.length === 0) {
@@ -117,7 +125,15 @@ export async function performOAuthBootstrap(
 async function main(): Promise<void> {
   try {
     const config = await loadConfig({ mode: "bootstrap" });
-    await performOAuthBootstrap(config);
+    await performOAuthBootstrap(config, {
+      report: message => {
+        if (message === "AUTHORIZATION_URL_FILE_READY") {
+          process.stderr.write("Local authorization URL file is ready.\n");
+        } else {
+          process.stderr.write("Browser launch command succeeded.\n");
+        }
+      }
+    });
     process.stderr.write("Blogger OAuth credential stored successfully.\n");
   } catch (error) {
     const message = error instanceof Error ? error.message : "OAuth bootstrap failed.";
