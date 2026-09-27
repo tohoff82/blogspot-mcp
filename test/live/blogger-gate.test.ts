@@ -38,6 +38,19 @@ describe.runIf(process.env.BLOGGER_LIVE_TEST === "1")("single-attempt live Blogg
 
     const created = await createDraft(expected, { blogId: config.blogId, adapter });
     expect(insertAttempts).toBe(1);
+    if (created.outcome !== "VERIFIED") {
+      if (created.error === undefined) throw new Error("Non-VERIFIED create result omitted structured error evidence.");
+      process.stderr.write(`LIVE_GATE_FAILURE=${JSON.stringify({
+        outcome: created.outcome,
+        remote_effect: created.remote_effect,
+        retry_safe: created.retry_safe,
+        error: {
+          code: created.error.code,
+          phase: created.error.phase,
+          detail: created.error.detail
+        }
+      })}\n`);
+    }
     if (created.outcome !== "VALIDATION_FAILED" && created.remote?.post_id !== undefined) {
       process.stderr.write(`LIVE_GATE_POST_ID=${created.remote.post_id}\n`);
     }
