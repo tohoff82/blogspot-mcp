@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { createBlogspotMcpServer } from "../../src/server.js";
-import { BLOG_ID, FakeAdapter, matchingPost, VALID_PROJECTION } from "../helpers/fake-adapter.js";
+import { BLOG_ID, FakeAdapter, FakeProvenanceStore, matchingPost, VALID_PROJECTION } from "../helpers/fake-adapter.js";
 
 type Connected = {
   client: Client;
@@ -13,7 +13,11 @@ type Connected = {
 const connected: Connected[] = [];
 
 async function connect(adapter = new FakeAdapter()): Promise<Connected> {
-  const server = createBlogspotMcpServer({ blogId: BLOG_ID, adapter });
+  const server = createBlogspotMcpServer({
+    blogId: BLOG_ID,
+    adapter,
+    provenanceStore: new FakeProvenanceStore()
+  });
   const client = new Client({ name: "contract-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);

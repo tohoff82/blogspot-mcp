@@ -2,6 +2,7 @@ import type {
   BloggerAdapter,
   InspectDraftIngress,
   InspectDraftResult,
+  ProvenanceStore,
   ValidationIssue
 } from "../domain/contracts.js";
 import { classifyChecks } from "../domain/outcomes.js";
@@ -11,6 +12,7 @@ import { verifyRemotePost } from "../domain/verify.js";
 export type InspectDraftDependencies = {
   blogId: string;
   adapter: BloggerAdapter;
+  provenanceStore: ProvenanceStore;
 };
 
 export async function inspectDraft(
@@ -79,7 +81,8 @@ export async function inspectDraft(
     };
   }
 
-  const verification = verifyRemotePost(dependencies.blogId, expected, result.post);
+  const provenance = await dependencies.provenanceStore.lookup(dependencies.blogId, postId);
+  const verification = verifyRemotePost(dependencies.blogId, expected, result.post, provenance);
   const classification = classifyChecks(verification.checks);
   if (classification === "VERIFIED") {
     return {
@@ -89,10 +92,15 @@ export async function inspectDraft(
       target: { blog_id: dependencies.blogId, post_id: postId },
       expected,
       remote: verification.remote,
+      provenance: verification.provenance,
       checks: verification.checks
     };
   }
   if (classification === "MISMATCH") {
+    const mismatchChecks = verification.checks.filter(check => check.result === "MISMATCH");
+    const provenanceCheck = mismatchChecks.every(check => check.name === "provenance")
+      ? verification.checks.find(check => check.name === "provenance")
+      : undefined;
     return {
       action: "inspect_draft",
       outcome: "MISMATCH",
@@ -100,14 +108,22 @@ export async function inspectDraft(
       target: { blog_id: dependencies.blogId, post_id: postId },
       expected,
       remote: verification.remote,
+      provenance: verification.provenance,
       checks: verification.checks,
-      error: {
+      error: provenanceCheck?.code === undefined ? {
         code: "VERIFICATION_MISMATCH",
         phase: "verification",
         detail: "At least one material verification check mismatched."
+      } : {
+        code: provenanceCheck.code,
+        phase: "provenance",
+        detail: provenanceCheck.detail ?? "Provenance did not match the expected source identifiers."
       }
     };
   }
+  const provenanceCheck = verification.checks.find(
+    check => check.name === "provenance" && check.result === "UNKNOWN"
+  );
   return {
     action: "inspect_draft",
     outcome: "REMOTE_UNKNOWN",
@@ -115,11 +131,16 @@ export async function inspectDraft(
     target: { blog_id: dependencies.blogId, post_id: postId },
     expected,
     remote: verification.remote,
+    provenance: verification.provenance,
     checks: verification.checks,
-    error: {
+    error: provenanceCheck?.code === undefined ? {
       code: "VERIFICATION_INCONCLUSIVE",
       phase: "verification",
       detail: "At least one material verification check was unknown."
+    } : {
+      code: provenanceCheck.code,
+      phase: "provenance",
+      detail: provenanceCheck.detail ?? "Provenance could not be established."
     }
   };
 }

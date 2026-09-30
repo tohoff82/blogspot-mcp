@@ -124,7 +124,6 @@ export class BloggerRestAdapter implements BloggerAdapter {
     if (data.title !== undefined) post.title = data.title;
     if (data.content !== undefined) post.content = data.content;
     if (data.labels !== undefined) post.labels = data.labels;
-    if (data.customMetaData !== undefined) post.customMetaData = data.customMetaData;
     return { ok: true, post };
   }
 }

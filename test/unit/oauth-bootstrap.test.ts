@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OAuth2Client } from "google-auth-library";
@@ -18,6 +18,7 @@ describe("OAuth bootstrap", () => {
     await mkdir(externalRoot, { mode: 0o700 });
     const oauthClientFile = join(externalRoot, "client.json");
     const tokenFile = join(externalRoot, "token.json");
+    const provenanceFile = join(externalRoot, "provenance.json");
     await writeFile(oauthClientFile, JSON.stringify({
       installed: {
         client_id: "test-client-id",
@@ -31,7 +32,8 @@ describe("OAuth bootstrap", () => {
       env: {
         BLOGGER_BLOG_ID: "1234567890123456789",
         BLOGGER_OAUTH_CLIENT_FILE: oauthClientFile,
-        BLOGGER_TOKEN_FILE: tokenFile
+        BLOGGER_TOKEN_FILE: tokenFile,
+        BLOGGER_PROVENANCE_FILE: provenanceFile
       }
     });
   });
@@ -95,5 +97,6 @@ describe("OAuth bootstrap", () => {
       token_type: "Bearer"
     });
     expect(JSON.stringify(stored)).not.toContain("access_token");
+    await expect(lstat(config.provenanceFile)).rejects.toThrow();
   });
 });

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createRuntimeCredentialProvider } from "../../src/auth/oauth-client.js";
 import { BloggerRestAdapter } from "../../src/blogger/adapter.js";
-import { loadConfig } from "../../src/config.js";
+import { loadConfig, revalidateProvenanceTarget } from "../../src/config.js";
 import type { BloggerAdapter, InsertDraftRequest, InsertDraftResult } from "../../src/domain/contracts.js";
 import { validateProjection } from "../../src/domain/projection.js";
+import { FileProvenanceStore } from "../../src/provenance/sidecar-store.js";
 import { createDraft } from "../../src/tools/create-draft.js";
 import { inspectDraft } from "../../src/tools/inspect-draft.js";
 
@@ -12,6 +13,11 @@ describe.runIf(process.env.BLOGGER_LIVE_TEST === "1")("single-attempt live Blogg
     const config = await loadConfig({ mode: "runtime" });
     const provider = await createRuntimeCredentialProvider(config);
     const realAdapter = new BloggerRestAdapter(config.blogId, provider);
+    const provenanceStore = new FileProvenanceStore(config.provenanceFile, {
+      validateTarget: async allowMissing => {
+        await revalidateProvenanceTarget(config, allowMissing);
+      }
+    });
     let insertAttempts = 0;
     const adapter: BloggerAdapter = {
       async insertDraft(request: InsertDraftRequest): Promise<InsertDraftResult> {
@@ -36,7 +42,7 @@ describe.runIf(process.env.BLOGGER_LIVE_TEST === "1")("single-attempt live Blogg
     expect(expected.labels).toHaveLength(20);
     expect(expected.labels.reduce((total, label) => total + Array.from(label).length, 0)).toBe(200);
 
-    const created = await createDraft(expected, { blogId: config.blogId, adapter });
+    const created = await createDraft(expected, { blogId: config.blogId, adapter, provenanceStore });
     expect(insertAttempts).toBe(1);
     if (created.outcome !== "VERIFIED") {
       if (created.error === undefined) throw new Error("Non-VERIFIED create result omitted structured error evidence.");
@@ -62,15 +68,18 @@ describe.runIf(process.env.BLOGGER_LIVE_TEST === "1")("single-attempt live Blogg
     expect(created.remote.blog_id).toBe(config.blogId);
     expect(created.checks).toHaveLength(6);
     expect(created.checks?.every(check => check.result === "MATCH")).toBe(true);
-    expect(created.remote.provenance).toEqual({
+    expect(created.remote).not.toHaveProperty("provenance");
+    expect(created.provenance?.record).toEqual({
       schema_version: 1,
+      blog_id: config.blogId,
+      post_id: created.remote.post_id,
       artifact_id: expected.source.artifact_id,
       version_id: expected.source.version_id
     });
 
     const inspected = await inspectDraft(
       { post_id: created.remote.post_id, expected },
-      { blogId: config.blogId, adapter }
+      { blogId: config.blogId, adapter, provenanceStore }
     );
     expect(inspected.outcome).toBe("VERIFIED");
     expect(insertAttempts).toBe(1);

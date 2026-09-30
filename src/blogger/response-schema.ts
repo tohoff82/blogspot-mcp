@@ -10,6 +10,5 @@ export const bloggerPostResponseSchema = z.object({
   status: z.string().optional(),
   title: z.string().optional(),
   content: z.string().optional(),
-  labels: z.array(z.string()).optional(),
-  customMetaData: z.string().optional()
+  labels: z.array(z.string()).optional()
 }).passthrough();

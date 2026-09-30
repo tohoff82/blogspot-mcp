@@ -11,6 +11,7 @@ describe("configuration and token target safety", () => {
   let externalRoot: string;
   let oauthClientFile: string;
   let tokenFile: string;
+  let provenanceFile: string;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "blogspot-mcp-config-"));
@@ -20,6 +21,7 @@ describe("configuration and token target safety", () => {
     await mkdir(externalRoot, { mode: 0o700 });
     oauthClientFile = join(externalRoot, "client.json");
     tokenFile = join(externalRoot, "token.json");
+    provenanceFile = join(externalRoot, "provenance.json");
     await writeFile(oauthClientFile, "{}", { mode: 0o600 });
   });
 
@@ -30,7 +32,8 @@ describe("configuration and token target safety", () => {
   const env = (): NodeJS.ProcessEnv => ({
     BLOGGER_BLOG_ID: "1234567890123456789",
     BLOGGER_OAUTH_CLIENT_FILE: oauthClientFile,
-    BLOGGER_TOKEN_FILE: tokenFile
+    BLOGGER_TOKEN_FILE: tokenFile,
+    BLOGGER_PROVENANCE_FILE: provenanceFile
   });
 
   it("allows a missing token only during bootstrap", async () => {
@@ -62,6 +65,27 @@ describe("configuration and token target safety", () => {
     await expect(loadConfig({ mode: "bootstrap", env: env(), repositoryRoot })).rejects.toThrow(
       "owner-only permissions"
     );
+  });
+
+  it("accepts an absent safe provenance target but rejects an unsafe existing one", async () => {
+    const config = await loadConfig({ mode: "bootstrap", env: env(), repositoryRoot });
+    expect(config.provenanceFile).toBe(join(await realpath(externalRoot), "provenance.json"));
+
+    await writeFile(provenanceFile, '{"schema_version":1,"records":{}}', { mode: 0o644 });
+    await expect(loadConfig({ mode: "bootstrap", env: env(), repositoryRoot })).rejects.toThrow(
+      "BLOGGER_PROVENANCE_FILE must have owner-only permissions"
+    );
+  });
+
+  it("requires the provenance parent to be owner-controlled", async () => {
+    const unsafeParent = join(root, "unsafe-provenance");
+    await mkdir(unsafeParent, { mode: 0o700 });
+    await chmod(unsafeParent, 0o777);
+    await expect(loadConfig({
+      mode: "bootstrap",
+      env: { ...env(), BLOGGER_PROVENANCE_FILE: join(unsafeParent, "provenance.json") },
+      repositoryRoot
+    })).rejects.toThrow("BLOGGER_PROVENANCE_FILE parent must not be group/other writable");
   });
 
   it("revalidates the token target before atomic replacement", async () => {

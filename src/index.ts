@@ -2,14 +2,20 @@ import { pathToFileURL } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { createRuntimeCredentialProvider } from "./auth/oauth-client.js";
 import { BloggerRestAdapter } from "./blogger/adapter.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, revalidateProvenanceTarget } from "./config.js";
+import { FileProvenanceStore } from "./provenance/sidecar-store.js";
 import { createBlogspotMcpServer } from "./server.js";
 
 export async function startServer(): Promise<void> {
   const config = await loadConfig({ mode: "runtime" });
   const credentialProvider = await createRuntimeCredentialProvider(config);
   const adapter = new BloggerRestAdapter(config.blogId, credentialProvider);
-  const server = createBlogspotMcpServer({ blogId: config.blogId, adapter });
+  const provenanceStore = new FileProvenanceStore(config.provenanceFile, {
+    validateTarget: async allowMissing => {
+      await revalidateProvenanceTarget(config, allowMissing);
+    }
+  });
+  const server = createBlogspotMcpServer({ blogId: config.blogId, adapter, provenanceStore });
   await server.connect(new StdioServerTransport());
 }
 

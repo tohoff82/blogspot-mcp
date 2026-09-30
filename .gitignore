@@ -8,3 +8,6 @@ coverage/
 client_secret*.json
 credentials*.json
 *token*.json
+*provenance*.json
+*provenance*.json.lock
+*provenance*.json.tmp-*

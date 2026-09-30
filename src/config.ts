@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { access, lstat, realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
@@ -10,6 +10,7 @@ export type AppConfig = {
   blogId: string;
   oauthClientFile: string;
   tokenFile: string;
+  provenanceFile: string;
   repositoryRoot: string;
 };
 
@@ -23,7 +24,8 @@ export class ConfigurationError extends Error {
 const environmentSchema = z.object({
   BLOGGER_BLOG_ID: z.string().regex(/^\d+$/u, "must be a non-empty decimal Blogger blog ID"),
   BLOGGER_OAUTH_CLIENT_FILE: z.string().min(1),
-  BLOGGER_TOKEN_FILE: z.string().min(1)
+  BLOGGER_TOKEN_FILE: z.string().min(1),
+  BLOGGER_PROVENANCE_FILE: z.string().min(1)
 });
 
 export function defaultRepositoryRoot(): string {
@@ -72,16 +74,41 @@ async function requireSafeExternalFile(
   return resolvedPath;
 }
 
-async function requireSafeExternalTokenTarget(
+async function requireSafeExternalMutableTarget(
+  variableName: "BLOGGER_TOKEN_FILE" | "BLOGGER_PROVENANCE_FILE",
   rawPath: string,
   repositoryRoot: string,
   allowMissing: boolean
 ): Promise<string> {
   if (!isAbsolute(rawPath)) {
-    throw new ConfigurationError("BLOGGER_TOKEN_FILE must be an absolute path.");
+    throw new ConfigurationError(`${variableName} must be an absolute path.`);
   }
+  const rawParent = dirname(rawPath);
+  let resolvedParent: string;
   try {
-    return await requireSafeExternalFile("BLOGGER_TOKEN_FILE", rawPath, repositoryRoot);
+    resolvedParent = await realpath(rawParent);
+  } catch {
+    throw new ConfigurationError(`${variableName} parent directory must exist.`);
+  }
+  if (!outsideRepository(repositoryRoot, resolvedParent)) {
+    throw new ConfigurationError(`${variableName} must resolve outside the repository.`);
+  }
+  const parentInfo = await stat(resolvedParent);
+  if (!parentInfo.isDirectory()) {
+    throw new ConfigurationError(`${variableName} parent must be a directory.`);
+  }
+  const uid = currentUid();
+  if (uid !== undefined && parentInfo.uid !== uid) {
+    throw new ConfigurationError(`${variableName} parent must be owned by the current user.`);
+  }
+  if (process.platform !== "win32" && (parentInfo.mode & 0o022) !== 0) {
+    throw new ConfigurationError(`${variableName} parent must not be group/other writable.`);
+  }
+  await access(resolvedParent, constants.R_OK | constants.W_OK | constants.X_OK);
+  const resolvedTarget = resolve(resolvedParent, basename(rawPath));
+
+  try {
+    return await requireSafeExternalFile(variableName, rawPath, repositoryRoot);
   } catch (error) {
     let exists = true;
     try {
@@ -91,30 +118,7 @@ async function requireSafeExternalTokenTarget(
     }
     if (exists || !allowMissing) throw error;
   }
-
-  const rawParent = dirname(rawPath);
-  let resolvedParent: string;
-  try {
-    resolvedParent = await realpath(rawParent);
-  } catch {
-    throw new ConfigurationError("BLOGGER_TOKEN_FILE parent directory must exist.");
-  }
-  if (!outsideRepository(repositoryRoot, resolvedParent)) {
-    throw new ConfigurationError("BLOGGER_TOKEN_FILE must resolve outside the repository.");
-  }
-  const parentInfo = await stat(resolvedParent);
-  if (!parentInfo.isDirectory()) {
-    throw new ConfigurationError("BLOGGER_TOKEN_FILE parent must be a directory.");
-  }
-  const uid = currentUid();
-  if (uid !== undefined && parentInfo.uid !== uid) {
-    throw new ConfigurationError("BLOGGER_TOKEN_FILE parent must be owned by the current user.");
-  }
-  if (process.platform !== "win32" && (parentInfo.mode & 0o022) !== 0) {
-    throw new ConfigurationError("BLOGGER_TOKEN_FILE parent must not be group/other writable.");
-  }
-  await access(resolvedParent, constants.R_OK | constants.W_OK | constants.X_OK);
-  return resolve(resolvedParent, rawPath.slice(rawParent.length + 1));
+  return resolvedTarget;
 }
 
 export async function loadConfig(options: {
@@ -133,19 +137,36 @@ export async function loadConfig(options: {
     env.data.BLOGGER_OAUTH_CLIENT_FILE,
     repositoryRoot
   );
-  const tokenFile = await requireSafeExternalTokenTarget(
+  const tokenFile = await requireSafeExternalMutableTarget(
+    "BLOGGER_TOKEN_FILE",
     env.data.BLOGGER_TOKEN_FILE,
     repositoryRoot,
     options.mode === "bootstrap"
+  );
+  const provenanceFile = await requireSafeExternalMutableTarget(
+    "BLOGGER_PROVENANCE_FILE",
+    env.data.BLOGGER_PROVENANCE_FILE,
+    repositoryRoot,
+    true
   );
   return {
     blogId: env.data.BLOGGER_BLOG_ID,
     oauthClientFile,
     tokenFile,
+    provenanceFile,
     repositoryRoot
   };
 }
 
 export async function revalidateTokenTarget(config: AppConfig, allowMissing: boolean): Promise<string> {
-  return requireSafeExternalTokenTarget(config.tokenFile, config.repositoryRoot, allowMissing);
+  return requireSafeExternalMutableTarget("BLOGGER_TOKEN_FILE", config.tokenFile, config.repositoryRoot, allowMissing);
+}
+
+export async function revalidateProvenanceTarget(config: AppConfig, allowMissing: boolean): Promise<string> {
+  return requireSafeExternalMutableTarget(
+    "BLOGGER_PROVENANCE_FILE",
+    config.provenanceFile,
+    config.repositoryRoot,
+    allowMissing
+  );
 }

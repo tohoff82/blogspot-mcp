@@ -5,7 +5,8 @@ import {
   createDraftResultSchema,
   inspectDraftIngressSchema,
   inspectDraftResultSchema,
-  type BloggerAdapter
+  type BloggerAdapter,
+  type ProvenanceStore
 } from "./domain/contracts.js";
 import { createDraft } from "./tools/create-draft.js";
 import { inspectDraft } from "./tools/inspect-draft.js";
@@ -13,6 +14,7 @@ import { inspectDraft } from "./tools/inspect-draft.js";
 export type BlogspotMcpDependencies = {
   blogId: string;
   adapter: BloggerAdapter;
+  provenanceStore: ProvenanceStore;
 };
 
 function toolResult(structuredContent: Record<string, unknown>): CallToolResult {

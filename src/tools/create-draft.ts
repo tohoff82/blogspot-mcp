@@ -2,17 +2,33 @@ import { encodeBody } from "../domain/body-codec.js";
 import type {
   BloggerAdapter,
   CreateDraftIngress,
-  CreateDraftResult
+  CreateDraftResult,
+  ProvenanceAccessResult,
+  ProvenanceStore,
+  VerificationCheck
 } from "../domain/contracts.js";
 import { classifyChecks } from "../domain/outcomes.js";
 import { validateProjection } from "../domain/projection.js";
-import { encodeProvenance } from "../domain/provenance.js";
+import { createProvenanceRecord } from "../domain/provenance.js";
 import { verifyRemotePost } from "../domain/verify.js";
 
 export type CreateDraftDependencies = {
   blogId: string;
   adapter: BloggerAdapter;
+  provenanceStore: ProvenanceStore;
 };
+
+function provenanceError(checks: VerificationCheck[]):
+  | { code: string; phase: "provenance"; detail: string }
+  | undefined {
+  const check = checks.find(candidate => candidate.name === "provenance" && candidate.result !== "MATCH");
+  if (check?.code === undefined) return undefined;
+  return {
+    code: check.code,
+    phase: "provenance",
+    detail: check.detail ?? "Provenance verification did not match the accepted contract."
+  };
+}
 
 export async function createDraft(
   ingress: CreateDraftIngress,
@@ -41,8 +57,7 @@ export async function createDraft(
   const insert = await dependencies.adapter.insertDraft({
     title: requested.title,
     content: encodeBody(requested.body),
-    labels: requested.labels ?? [],
-    customMetaData: encodeProvenance(requested.source.artifact_id, requested.source.version_id)
+    labels: requested.labels ?? []
   });
 
   if (!insert.ok) {
@@ -91,6 +106,13 @@ export async function createDraft(
     };
   }
 
+  const record = createProvenanceRecord(
+    dependencies.blogId,
+    insert.postId,
+    requested.source.artifact_id,
+    requested.source.version_id
+  );
+  const persisted = await dependencies.provenanceStore.persist(record);
   const readBack = await dependencies.adapter.getPostAdmin(insert.postId);
   if (!readBack.ok) {
     return {
@@ -102,6 +124,7 @@ export async function createDraft(
       remote_effect: "created",
       retry_safe: false,
       remote: { post_id: insert.postId },
+      provenance: persisted.evidence,
       error: {
         code: readBack.code,
         phase: readBack.kind === "auth" ? "auth" : "read_back",
@@ -110,7 +133,11 @@ export async function createDraft(
     };
   }
 
-  const verification = verifyRemotePost(dependencies.blogId, requested, readBack.post);
+  const reread = await dependencies.provenanceStore.lookup(dependencies.blogId, insert.postId);
+  const provenanceResult: ProvenanceAccessResult = persisted.ok
+    ? reread
+    : { ...persisted, evidence: reread.evidence };
+  const verification = verifyRemotePost(dependencies.blogId, requested, readBack.post, provenanceResult);
   const classification = classifyChecks(verification.checks);
   if (classification === "VERIFIED") {
     return {
@@ -122,10 +149,15 @@ export async function createDraft(
       remote_effect: "created",
       retry_safe: false,
       remote: verification.remote,
+      provenance: verification.provenance,
       checks: verification.checks
     };
   }
   if (classification === "MISMATCH") {
+    const mismatchChecks = verification.checks.filter(check => check.result === "MISMATCH");
+    const provenanceFailure = mismatchChecks.every(check => check.name === "provenance")
+      ? provenanceError(verification.checks)
+      : undefined;
     return {
       action: "create_draft",
       outcome: "MISMATCH",
@@ -135,14 +167,16 @@ export async function createDraft(
       remote_effect: "created",
       retry_safe: false,
       remote: verification.remote,
+      provenance: verification.provenance,
       checks: verification.checks,
-      error: {
+      error: provenanceFailure ?? {
         code: "VERIFICATION_MISMATCH",
         phase: "verification",
         detail: "At least one material verification check mismatched."
       }
     };
   }
+  const provenanceFailure = provenanceError(verification.checks);
   return {
     action: "create_draft",
     outcome: "CREATED_UNVERIFIED",
@@ -152,8 +186,9 @@ export async function createDraft(
     remote_effect: "created",
     retry_safe: false,
     remote: verification.remote,
+    provenance: verification.provenance,
     checks: verification.checks,
-    error: {
+    error: provenanceFailure ?? {
       code: "VERIFICATION_INCONCLUSIVE",
       phase: "verification",
       detail: "At least one material verification check could not be established."

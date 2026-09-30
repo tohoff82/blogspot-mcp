@@ -7,8 +7,7 @@ import { BLOG_ID, matchingPost } from "../helpers/fake-adapter.js";
 const REQUEST: InsertDraftRequest = {
   title: "title",
   content: "<p>body</p>",
-  labels: ["one"],
-  customMetaData: '{"schema_version":1,"artifact_id":"a","version_id":"v"}'
+  labels: ["one"]
 };
 
 const provider = (): AuthorizationHeaderProvider => ({
@@ -91,18 +90,20 @@ describe("narrow Blogger REST adapter", () => {
       title: post.title,
       content: post.content,
       labels: post.labels,
-      customMetaData: post.customMetaData,
+      customMetaData: "ignored historical field",
       ignored_remote_field: "not copied"
     }));
     const signal = new AbortController().signal;
     const timeoutSignal = vi.fn(() => signal);
     const adapter = new BloggerRestAdapter(BLOG_ID, provider(), { fetchFn, timeoutSignal });
-    await expect(adapter.getPostAdmin("9876543210")).resolves.toEqual({ ok: true, post });
+    const result = await adapter.getPostAdmin("9876543210");
+    expect(result).toEqual({ ok: true, post });
     const [url, init] = fetchFn.mock.calls[0] ?? [];
     expect(url).toBe(`https://www.googleapis.com/blogger/v3/blogs/${BLOG_ID}/posts/9876543210?view=ADMIN`);
     expect(init?.method).toBe("GET");
     expect(init?.body).toBeUndefined();
     expect(init?.signal).toBe(signal);
+    expect(JSON.stringify(result)).not.toContain("customMetaData");
   });
 
   it.each([

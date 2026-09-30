@@ -1,14 +1,17 @@
 import type {
   AuthoredProjection,
+  ProvenanceAccessResult,
+  ProvenanceEvidence,
   RemotePost,
   RemotePostEvidence,
   VerificationCheck
 } from "./contracts.js";
 import { decodeBody } from "./body-codec.js";
-import { decodeProvenance } from "./provenance.js";
+import { createProvenanceRecord } from "./provenance.js";
 
 export type VerificationResult = {
   remote: RemotePostEvidence;
+  provenance: ProvenanceEvidence;
   checks: VerificationCheck[];
 };
 
@@ -32,7 +35,8 @@ function sameStringSet(expected: string[], observed: string[]): boolean {
 export function verifyRemotePost(
   configuredBlogId: string,
   expected: AuthoredProjection,
-  post: RemotePost
+  post: RemotePost,
+  provenanceResult: ProvenanceAccessResult
 ): VerificationResult {
   const remote: RemotePostEvidence = { post_id: post.id };
   if (post.blogId !== undefined) remote.blog_id = post.blogId;
@@ -70,29 +74,42 @@ export function verifyRemotePost(
     });
   }
 
-  const expectedProvenance = {
-    schema_version: 1 as const,
-    artifact_id: expected.source.artifact_id,
-    version_id: expected.source.version_id
-  };
-  if (post.customMetaData === undefined) {
-    checks.push({ name: "provenance", result: "UNKNOWN", expected: expectedProvenance, detail: "customMetaData was not present in the remote response." });
+  const expectedProvenance = createProvenanceRecord(
+    configuredBlogId,
+    provenanceResult.evidence.key.post_id,
+    expected.source.artifact_id,
+    expected.source.version_id
+  );
+  if (!provenanceResult.ok) {
+    checks.push({
+      name: "provenance",
+      result: "UNKNOWN",
+      expected: expectedProvenance,
+      code: provenanceResult.code,
+      detail: provenanceResult.detail
+    });
   } else {
-    const provenance = decodeProvenance(post.customMetaData);
-    if (!provenance.ok) {
-      checks.push({ name: "provenance", result: "UNKNOWN", expected: expectedProvenance, detail: provenance.detail });
+    const observed = provenanceResult.evidence.record;
+    if (observed === undefined) {
+      checks.push({
+        name: "provenance",
+        result: "UNKNOWN",
+        expected: expectedProvenance,
+        code: "PROVENANCE_RECORD_ABSENT",
+        detail: "The provenance lookup returned no record."
+      });
     } else {
-      remote.provenance = provenance.provenance;
-      const matches = provenance.provenance.artifact_id === expectedProvenance.artifact_id
-        && provenance.provenance.version_id === expectedProvenance.version_id;
+      const matches = observed.artifact_id === expectedProvenance.artifact_id
+        && observed.version_id === expectedProvenance.version_id;
       checks.push({
         name: "provenance",
         result: matches ? "MATCH" : "MISMATCH",
         expected: expectedProvenance,
-        observed: provenance.provenance
+        observed,
+        ...(matches ? {} : { code: "PROVENANCE_VALUE_MISMATCH" as const })
       });
     }
   }
 
-  return { remote, checks };
+  return { remote, provenance: provenanceResult.evidence, checks };
 }

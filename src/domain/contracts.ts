@@ -35,13 +35,29 @@ export const validationIssueSchema = z.object({
 
 export type ValidationIssue = z.infer<typeof validationIssueSchema>;
 
-export const provenanceSchema = z.object({
+export const provenanceRecordSchema = z.object({
   schema_version: z.literal(1),
+  blog_id: z.string().regex(/^\d+$/u),
+  post_id: z.string().regex(/^\d+$/u),
   artifact_id: z.string(),
   version_id: z.string()
 }).strict();
 
-export type Provenance = z.infer<typeof provenanceSchema>;
+export type ProvenanceRecord = z.infer<typeof provenanceRecordSchema>;
+
+export const provenanceErrorCodeSchema = z.enum([
+  "PROVENANCE_RECORD_ABSENT",
+  "PROVENANCE_STORE_UNREADABLE",
+  "PROVENANCE_STORE_CORRUPT",
+  "PROVENANCE_SCHEMA_UNSUPPORTED",
+  "PROVENANCE_KEY_INTEGRITY_CONFLICT",
+  "PROVENANCE_WRITE_FAILED",
+  "PROVENANCE_LOCK_CONTENDED",
+  "PROVENANCE_STALE_LOCK",
+  "PROVENANCE_VALUE_MISMATCH"
+]);
+
+export type ProvenanceErrorCode = z.infer<typeof provenanceErrorCodeSchema>;
 
 export const checkNameSchema = z.enum([
   "target",
@@ -59,6 +75,7 @@ export const verificationCheckSchema = z.object({
   result: z.enum(["MATCH", "MISMATCH", "UNKNOWN"]),
   expected: z.unknown(),
   observed: z.unknown().optional(),
+  code: provenanceErrorCodeSchema.optional(),
   detail: z.string().optional()
 }).strict();
 
@@ -70,21 +87,31 @@ export const remotePostEvidenceSchema = z.object({
   status: z.string().optional(),
   title: z.string().optional(),
   canonical_body: z.string().optional(),
-  labels: z.array(z.string()).optional(),
-  provenance: provenanceSchema.optional()
+  labels: z.array(z.string()).optional()
 }).strict();
 
 export type RemotePostEvidence = z.infer<typeof remotePostEvidenceSchema>;
 
+export const provenanceEvidenceSchema = z.object({
+  storage: z.literal("owner_sidecar"),
+  key: z.object({
+    blog_id: z.string(),
+    post_id: z.string()
+  }).strict(),
+  record: provenanceRecordSchema.optional()
+}).strict();
+
+export type ProvenanceEvidence = z.infer<typeof provenanceEvidenceSchema>;
+
 const targetSchema = z.object({ blog_id: z.string() }).strict();
 const createErrorSchema = z.object({
   code: z.string(),
-  phase: z.enum(["auth", "create", "read_back", "verification"]),
+  phase: z.enum(["auth", "create", "read_back", "verification", "provenance"]),
   detail: z.string()
 }).strict();
 const inspectErrorSchema = z.object({
   code: z.string(),
-  phase: z.enum(["auth", "read", "verification"]),
+  phase: z.enum(["auth", "read", "verification", "provenance"]),
   detail: z.string()
 }).strict();
 
@@ -119,6 +146,7 @@ export const validatedCreateResultSchema = z.object({
   remote_effect: z.enum(["none", "created", "unknown"]),
   retry_safe: z.boolean(),
   remote: remotePostEvidenceSchema.optional(),
+  provenance: provenanceEvidenceSchema.optional(),
   checks: z.array(verificationCheckSchema).optional(),
   error: createErrorSchema.optional()
 }).strict();
@@ -154,6 +182,7 @@ export const validatedInspectResultSchema = z.object({
   target: z.object({ blog_id: z.string(), post_id: z.string() }).strict(),
   expected: authoredProjectionSchema,
   remote: remotePostEvidenceSchema.optional(),
+  provenance: provenanceEvidenceSchema.optional(),
   checks: z.array(verificationCheckSchema).optional(),
   error: inspectErrorSchema.optional()
 }).strict();
@@ -172,14 +201,12 @@ export type RemotePost = {
   title?: string;
   content?: string;
   labels?: string[];
-  customMetaData?: string;
 };
 
 export type InsertDraftRequest = {
   title: string;
   content: string;
   labels: string[];
-  customMetaData: string;
 };
 
 export type AdapterFailure = {
@@ -198,4 +225,20 @@ export type GetPostResult =
 export interface BloggerAdapter {
   insertDraft(request: InsertDraftRequest): Promise<InsertDraftResult>;
   getPostAdmin(postId: string): Promise<GetPostResult>;
+}
+
+export type ProvenanceAccessFailure = {
+  ok: false;
+  code: ProvenanceErrorCode;
+  detail: string;
+  evidence: ProvenanceEvidence;
+};
+
+export type ProvenanceAccessResult =
+  | { ok: true; evidence: ProvenanceEvidence }
+  | ProvenanceAccessFailure;
+
+export interface ProvenanceStore {
+  persist(record: ProvenanceRecord): Promise<ProvenanceAccessResult>;
+  lookup(blogId: string, postId: string): Promise<ProvenanceAccessResult>;
 }
