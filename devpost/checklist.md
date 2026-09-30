@@ -21,7 +21,7 @@ Git synchronization authority: After each mechanically verified slice, and after
   Learner check: Inspect the two advertised MCP tools and one `VERIFIED` result beside one `MISMATCH` result; confirm the callable surface and structured evidence express the authority boundary you intended.
   Commit: `Build deterministic draft-only MCP kernel`
 
-- [ ] **2. One guarded real Blogger draft passes the revised live evidence gate**
+- [x] **2. One guarded real Blogger draft passes the revised live evidence gate**
   Becomes usable: With owner-controlled external credentials and provenance sidecar, the local server can authenticate, create at most one private draft in the configured blog, persist durable provenance under the resulting `blog_id + post_id`, read that exact post back, and independently inspect all six checks as `VERIFIED`.
   Why now: The first live contour confirmed Blogger target, draft state, title, canonical body, and boundary labels, but did not provide a reliable `customMetaData` round trip. The accepted R1 revision replaces only that failed provenance mechanism while preserving the existing draft-only authority and one-attempt boundary.
   PRD ref: `prd.md > Create Draft Behavior`; `prd.md > Inspect and Verify Behavior`; `prd.md > Verification Semantics`; `prd.md > Result States`; `prd.md > Durable Provenance`
@@ -43,7 +43,7 @@ Git synchronization authority: After each mechanically verified slice, and after
 
 ## Hands-on Checkpoints
 
-- [ ] Slice 2 external-effect authorization — after deterministic adapter/auth/preflight verification passes and before the first real Blogger `POST`, learner explicitly authorizes the one-attempt private-draft live gate
+- [x] Slice 2 external-effect authorization — after deterministic adapter/auth/preflight verification passes and before the first real Blogger `POST`, learner explicitly authorizes the one-attempt private-draft live gate
 - [ ] Early usable behavior explored — after slice 2 live Blogger gate, before final hardening
 - [ ] Final kick-the-tires exploration and feedback completed
 
@@ -66,3 +66,4 @@ Activity mode: [live app and editor, explicit static fallback, focused alternati
 ## Revisions
 
 - 2026-09-27 — Live draft `6000476695311698466` matched configured target, `DRAFT` state, title, canonical body, and exact labels, but the tested contour did not round-trip `customMetaData`. Accepted provenance revision R1 replaces that mechanism with one owner-controlled JSON sidecar keyed by configured `blog_id + post_id`, preserves existing outcome names and verification precedence, and repairs Slice 2 accordingly. The evidence draft remains unchanged and receives no sidecar backfill.
+- 2026-09-30 — Final clean Slice 2 gate created draft `1119814205973459388` with exactly one Blogger insert and two required ADMIN reads. Create and independent `inspect_draft` returned `VERIFIED`; configured target, `DRAFT` state, title, canonical body, exact 20-label/200-code-point set, and sidecar provenance all returned `MATCH`. The owner-only sidecar (mode `0600`) atomically committed and re-read its store/record schema `1` entry for artifact `blogspot-mcp-live-gate`, version `dc50aec0-4dfc-452a-8241-dada053e9267`; neither complete provenance identifier appeared in title, body, or labels. No retry, second create, update, delete, publish, schedule, cleanup, or target change occurred, and historical draft `6000476695311698466` remains unchanged without a sidecar record.
