@@ -53,15 +53,15 @@ Git synchronization authority: After each mechanically verified slice, and after
 
 ## Code Tour and App Map
 
-- [ ] Learning activity complete — guided route, focused alternative, prior practice connected, or brief recap
-- [ ] Optional edit and transfer reflection addressed — offered/declined/already covered/not applicable as appropriate
-- [ ] `devpost/app-map.html` generated from finished code, checked, and shown, including a project-grounded practice to reuse
+- [x] Learning activity complete — guided route, focused alternative, prior practice connected, or brief recap
+- [x] Optional edit and transfer reflection addressed — offered/declined/already covered/not applicable as appropriate
+- [x] `devpost/app-map.html` generated from finished code, checked, and shown, including a project-grounded practice to reuse
 
-Activity and evidence: [what actually happened; real document/test/code references; unfinished work if interrupted]
-Route and stops: [actual paths and symbols; guided stops completed, or reference-only route]
-Edit outcome: [tried/kept/reverted/declined/not applicable; verification if changed]
-Reflection: [offered/answered/declined/already covered — personal answer belongs only in the ignored profile]
-Activity mode: [live app and editor, explicit static fallback, focused alternative, prior practice, or recap]
+Activity and evidence: `customMetaData` live failure → localized sidecar provenance repair → final six-check `VERIFIED` contour.
+Route and stops: Reference-only route at `src/server.ts` → `createBlogspotMcpServer`, `src/tools/create-draft.ts` → `createDraft`, and `src/domain/verify.ts` → `verifyRemotePost`; supporting reference: `src/provenance/sidecar-store.ts` → `FileProvenanceStore`. This was not represented as a completed guided code tour.
+Edit outcome: Not applicable — no product edit performed during wrap-up.
+Reflection: Answered.
+Activity mode: Focused alternative / prior practice connected / brief recap.
 
 ## Revisions
 
@@ -71,3 +71,4 @@ Activity mode: [live app and editor, explicit static fallback, focused alternati
 - 2026-10-01 — The planned early usable-behavior checkpoint did not occur before Slice 3 and was intentionally not backfilled. The retrospective operator exploration and completed final kick-the-tires session supplied the later learner/operator evidence; this explicit revision retires the obsolete intermediate checkpoint while preserving chronology.
 - 2026-10-01 — Final Review confirmed Scope, PRD, spec, implementation, and README alignment. The unique draft-only kernel remains intact: the MCP surface is exactly `create_draft` plus `inspect_draft`, the configured target stays fixed, no publish/update/delete/schedule capability exists, one-attempt create and fail-closed unknown-effect semantics remain enforced, and owner-sidecar provenance stays separate from Blogger projection truth. Slices 1, 2, and 3 are closed; deterministic verification, live evidence, and operator exploration passed; no product/runtime blocker remains; and the replayable-demo `SHOULD_FIX` is resolved. Architect acceptance: `ACCEPT Final Review — PoC ready`.
 - 2026-10-01 — The repository is intentionally public by direct Architect action for the Devpost submission path. This is not a product defect and requires no visibility rollback; publication/history privacy and secret audit remain later `6-ship` work.
+- 2026-10-01 — Learning wrap-up completed; focused prior-practice recap connected the live provenance failure and localized R1 repair to the reusable practice of designing effect and independent-proof paths together. App map generated, checked, rendered, and shown. Optional transfer reflection answered.
