@@ -155,11 +155,13 @@ Do not run that command without separate, explicit authorization for exactly one
 1. Confirm Node 24, run `npm ci`, build, and run the deterministic tests.
 2. Configure the four external values and complete `npm run auth` if needed.
 3. Start the MCP server and show `tools/list`: only `create_draft` and `inspect_draft` appear.
-4. Explain a previously established `VERIFIED` create receipt: the Blogger projection evidence and sidecar provenance evidence are separate, and all six checks are `MATCH`.
-5. Use `inspect_draft` only with an already-known post ID and its exact expected projection to demonstrate independent read-only verification. A fresh create requires a new external-effect authorization.
+4. Explain a previously established `VERIFIED` result: the Blogger projection evidence and sidecar provenance evidence are separate, and all six checks are `MATCH`.
+5. Demonstrate `inspect_draft` with a deterministic known fixture, or with a future/live post only when its exact expected projection was independently retained before inspection. A fresh create requires a new external-effect authorization.
 6. Show that no publish or general administration capability appears in the advertised surface.
 
-The final clean Slice 2 gate produced post `1119814205973459388` with `VERIFIED` create and independent inspect results. Preserve its governed evidence in `devpost/checklist.md`; do not fabricate missing expected inputs or provenance.
+The final clean Slice 2 gate produced post `1119814205973459388` with `VERIFIED` create and independent inspect results. It is accepted historical live evidence, but its exact generated visible title was not independently retained in repository evidence. Do not reconstruct expected projection values from the current remote Blogger post to claim independent verification; that would make the comparison circular. Preserve the governed evidence in `devpost/checklist.md` and do not fabricate missing expected inputs or provenance.
+
+Documentation and demo-readiness verification require no new live Blogger invocation. Use a deterministic fixture for a replayable inspect demonstration, or retain the complete expected projection independently before inspecting a future separately authorized live post.
 
 ## Manual cleanup
 
