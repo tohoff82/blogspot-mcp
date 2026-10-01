@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -95,6 +95,28 @@ describe("configuration and token target safety", () => {
       "owner-only permissions"
     );
     expect(await readFile(tokenFile, "utf8")).toBe("{}");
+  });
+
+  it("fails closed when token target resolution changes immediately before rename", async () => {
+    const config = await loadConfig({ mode: "bootstrap", env: env(), repositoryRoot });
+    const redirectedTarget = join(externalRoot, "redirected-token.json");
+    let validations = 0;
+
+    await expect(writeTokenAtomically(
+      config,
+      { refresh_token: "test-only-refresh-value" },
+      {
+        revalidateTarget: async () => {
+          validations += 1;
+          return validations === 1 ? tokenFile : redirectedTarget;
+        }
+      }
+    )).rejects.toThrow("Token target changed during atomic persistence");
+
+    expect(validations).toBe(2);
+    await expect(lstat(tokenFile)).rejects.toThrow();
+    await expect(lstat(redirectedTarget)).rejects.toThrow();
+    expect((await readdir(externalRoot)).filter(name => name.startsWith(".blogger-token-"))).toEqual([]);
   });
 
   it("writes a same-directory owner-only token atomically", async () => {

@@ -13,9 +13,19 @@ export const storedTokenSchema = z.object({
 
 export type StoredToken = z.infer<typeof storedTokenSchema>;
 
-export async function writeTokenAtomically(config: AppConfig, token: StoredToken): Promise<void> {
+type TokenStoreDependencies = {
+  revalidateTarget?: typeof revalidateTokenTarget;
+  beforeRename?: (temporaryPath: string) => void | Promise<void>;
+};
+
+export async function writeTokenAtomically(
+  config: AppConfig,
+  token: StoredToken,
+  dependencies: TokenStoreDependencies = {}
+): Promise<void> {
   const validated = storedTokenSchema.parse(token);
-  const target = await revalidateTokenTarget(config, true);
+  const revalidateTarget = dependencies.revalidateTarget ?? revalidateTokenTarget;
+  const target = await revalidateTarget(config, true);
   const temporary = join(dirname(target), `.blogger-token-${process.pid}-${randomUUID()}.tmp`);
   let handle;
   try {
@@ -24,8 +34,10 @@ export async function writeTokenAtomically(config: AppConfig, token: StoredToken
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await revalidateTokenTarget(config, true);
-    await rename(temporary, target);
+    await dependencies.beforeRename?.(temporary);
+    const replacementTarget = await revalidateTarget(config, true);
+    if (replacementTarget !== target) throw new Error("Token target changed during atomic persistence.");
+    await rename(temporary, replacementTarget);
   } catch (error) {
     if (handle !== undefined) await handle.close().catch(() => undefined);
     await rm(temporary, { force: true }).catch(() => undefined);

@@ -31,7 +31,7 @@ Git synchronization authority: After each mechanically verified slice, and after
   Learner check: Open the newly reported post in Blogger, confirm it is a private draft with the expected visible title, body, and labels and no visible provenance, then compare it with the separate Blogger and sidecar evidence from create and independent inspect.
   Commit: `Add guarded Blogger integration and live gate`
 
-- [ ] **3. The local tool is reproducible and fail-closed for operators**
+- [x] **3. The local tool is reproducible and fail-closed for operators**
   Becomes usable: Another operator can configure, authenticate, start, exercise, and understand the local stdio server while every specified validation, credential, startup, transport, timeout, mismatch, and uncertainty path remains machine-branchable and non-secret.
   Why now: Once the real compatibility gate passes, the remaining work can harden and document the proven path without hiding an external design failure. This final slice turns the live proof into a reproducible POC and completes the demo evidence rather than broadening the feature set.
   PRD ref: `prd.md > Output Character`; `prd.md > Result States`; `prd.md > What We're Building`; `prd.md > Non-Goals`

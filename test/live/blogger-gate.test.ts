@@ -48,9 +48,7 @@ describe.runIf(process.env.BLOGGER_LIVE_TEST === "1")("single-attempt live Blogg
     const provider = await createRuntimeCredentialProvider(config);
     const realAdapter = new BloggerRestAdapter(config.blogId, provider);
     const provenanceStore = new FileProvenanceStore(config.provenanceFile, {
-      validateTarget: async allowMissing => {
-        await revalidateProvenanceTarget(config, allowMissing);
-      }
+      validateTarget: allowMissing => revalidateProvenanceTarget(config, allowMissing)
     });
     let insertAttempts = 0;
     const adapter: BloggerAdapter = {

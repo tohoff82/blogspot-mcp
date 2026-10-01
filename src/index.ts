@@ -1,33 +1,56 @@
 import { pathToFileURL } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { createRuntimeCredentialProvider } from "./auth/oauth-client.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import {
+  createRuntimeCredentialProvider,
+  OAuthCredentialError,
+  type AuthorizationHeaderProvider
+} from "./auth/oauth-client.js";
 import { BloggerRestAdapter } from "./blogger/adapter.js";
-import { loadConfig, revalidateProvenanceTarget } from "./config.js";
+import {
+  ConfigurationError,
+  loadConfig,
+  revalidateProvenanceTarget,
+  type AppConfig
+} from "./config.js";
 import { FileProvenanceStore } from "./provenance/sidecar-store.js";
 import { createBlogspotMcpServer } from "./server.js";
 
-export async function startServer(): Promise<void> {
-  const config = await loadConfig({ mode: "runtime" });
-  const credentialProvider = await createRuntimeCredentialProvider(config);
+type StartServerDependencies = {
+  loadRuntimeConfig?: () => Promise<AppConfig>;
+  createCredentialProvider?: (config: AppConfig) => Promise<AuthorizationHeaderProvider>;
+  connect?: (server: McpServer) => Promise<void>;
+};
+
+export async function startServer(dependencies: StartServerDependencies = {}): Promise<void> {
+  const config = await (dependencies.loadRuntimeConfig ?? (() => loadConfig({ mode: "runtime" })))();
+  const credentialProvider = await (dependencies.createCredentialProvider ?? createRuntimeCredentialProvider)(config);
   const adapter = new BloggerRestAdapter(config.blogId, credentialProvider);
   const provenanceStore = new FileProvenanceStore(config.provenanceFile, {
-    validateTarget: async allowMissing => {
-      await revalidateProvenanceTarget(config, allowMissing);
-    }
+    validateTarget: allowMissing => revalidateProvenanceTarget(config, allowMissing)
   });
   const server = createBlogspotMcpServer({ blogId: config.blogId, adapter, provenanceStore });
-  await server.connect(new StdioServerTransport());
+  await (dependencies.connect ?? (instance => instance.connect(new StdioServerTransport())))(server);
 }
 
-async function main(): Promise<void> {
+export function startupFailureDetail(error: unknown): string {
+  if (error instanceof ConfigurationError || error instanceof OAuthCredentialError) return error.message;
+  return "Unexpected startup preflight failure.";
+}
+
+export async function runEntrypoint(dependencies: {
+  start?: () => Promise<void>;
+  writeStderr?: (message: string) => void;
+} = {}): Promise<number> {
   try {
-    await startServer();
+    await (dependencies.start ?? startServer)();
+    return 0;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Startup preflight failed.";
-    process.stderr.write(`blogspot-mcp startup failed: ${message}\n`);
-    process.exitCode = 1;
+    const message = `blogspot-mcp startup failed: ${startupFailureDetail(error)}\n`;
+    (dependencies.writeStderr ?? (value => process.stderr.write(value)))(message);
+    return 1;
   }
 }
 
 const entrypoint = process.argv[1] === undefined ? undefined : pathToFileURL(process.argv[1]).href;
-if (entrypoint === import.meta.url) await main();
+if (entrypoint === import.meta.url) process.exitCode = await runEntrypoint();

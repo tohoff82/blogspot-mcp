@@ -22,18 +22,30 @@ export interface AuthorizationHeaderProvider {
   getAuthorizationHeaders(): Promise<Headers>;
 }
 
+export class OAuthCredentialError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OAuthCredentialError";
+  }
+}
+
 async function readJson(path: string): Promise<unknown> {
-  const value = await readFile(path, "utf8");
+  let value: string;
+  try {
+    value = await readFile(path, "utf8");
+  } catch {
+    throw new OAuthCredentialError("OAuth credential file could not be read.");
+  }
   try {
     return JSON.parse(value);
   } catch {
-    throw new Error("Credential file contains invalid JSON.");
+    throw new OAuthCredentialError("OAuth credential file contains invalid JSON.");
   }
 }
 
 export async function loadDesktopClient(config: AppConfig): Promise<DesktopClient> {
   const result = desktopClientSchema.safeParse(await readJson(config.oauthClientFile));
-  if (!result.success) throw new Error("OAuth client file does not contain a valid Desktop client.");
+  if (!result.success) throw new OAuthCredentialError("OAuth client file does not contain a valid Desktop client.");
   return result.data.installed;
 }
 
@@ -48,7 +60,7 @@ export function createOAuth2Client(client: DesktopClient, redirectUri?: string):
 export async function createRuntimeCredentialProvider(config: AppConfig): Promise<AuthorizationHeaderProvider> {
   const clientData = await loadDesktopClient(config);
   const tokenResult = storedTokenSchema.safeParse(await readJson(config.tokenFile));
-  if (!tokenResult.success) throw new Error("Token file does not contain a valid refresh credential.");
+  if (!tokenResult.success) throw new OAuthCredentialError("Token file does not contain a valid refresh credential.");
   const oauthClient = createOAuth2Client(clientData);
   oauthClient.setCredentials({ refresh_token: tokenResult.data.refresh_token });
 
@@ -61,7 +73,7 @@ export async function createRuntimeCredentialProvider(config: AppConfig): Promis
   try {
     await provider.getAuthorizationHeaders();
   } catch {
-    throw new Error("OAuth access-token readiness check failed.");
+    throw new OAuthCredentialError("OAuth access-token readiness check failed.");
   }
   return provider;
 }

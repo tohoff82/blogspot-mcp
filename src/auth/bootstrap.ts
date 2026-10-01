@@ -3,8 +3,13 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { CodeChallengeMethod, type OAuth2Client } from "google-auth-library";
 import type { AppConfig } from "../config.js";
-import { loadConfig } from "../config.js";
-import { BLOGGER_SCOPE, createOAuth2Client, loadDesktopClient } from "./oauth-client.js";
+import { ConfigurationError, loadConfig } from "../config.js";
+import {
+  BLOGGER_SCOPE,
+  createOAuth2Client,
+  loadDesktopClient,
+  OAuthCredentialError
+} from "./oauth-client.js";
 import { openBrowser } from "./open-browser.js";
 import { writeTokenAtomically, type StoredToken } from "./token-store.js";
 import { createAuthorizationUrlFile, type AuthorizationUrlFile } from "./authorization-url-file.js";
@@ -136,7 +141,9 @@ async function main(): Promise<void> {
     });
     process.stderr.write("Blogger OAuth credential stored successfully.\n");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "OAuth bootstrap failed.";
+    const message = error instanceof ConfigurationError || error instanceof OAuthCredentialError
+      ? error.message
+      : "Authorization could not be completed.";
     process.stderr.write(`Blogger OAuth bootstrap failed: ${message}\n`);
     process.exitCode = 1;
   }

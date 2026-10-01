@@ -30,7 +30,7 @@ type SidecarStoreDependencies = {
   beforeRename?: (temporaryPath: string) => void | Promise<void>;
   afterRename?: () => void | Promise<void>;
   processIsActive?: (pid: number) => boolean;
-  validateTarget?: (allowMissing: boolean) => void | Promise<void>;
+  validateTarget?: (allowMissing: boolean) => string | void | Promise<string | void>;
 };
 
 type LockMetadata = {
@@ -80,7 +80,7 @@ export class FileProvenanceStore implements ProvenanceStore {
     return this.serialize(async () => {
       const evidence = evidenceFor(record.blog_id, record.post_id);
       try {
-        await this.dependencies.validateTarget?.(true);
+        await this.validateTarget(true);
       } catch {
         return provenanceFailure(
           evidence,
@@ -146,7 +146,7 @@ export class FileProvenanceStore implements ProvenanceStore {
     return this.serialize(async () => {
       const evidence = evidenceFor(blogId, postId);
       try {
-        await this.dependencies.validateTarget?.(true);
+        await this.validateTarget(true);
       } catch {
         return provenanceFailure(
           evidence,
@@ -174,6 +174,13 @@ export class FileProvenanceStore implements ProvenanceStore {
     const run = this.operationTail.then(operation, operation);
     this.operationTail = run.then(() => undefined, () => undefined);
     return run;
+  }
+
+  private async validateTarget(allowMissing: boolean): Promise<void> {
+    const target = await this.dependencies.validateTarget?.(allowMissing);
+    if (typeof target === "string" && target !== this.filePath) {
+      throw new Error("Provenance target changed during persistence.");
+    }
   }
 
   private async acquireLock(evidence: ProvenanceEvidence): Promise<
@@ -353,6 +360,7 @@ export class FileProvenanceStore implements ProvenanceStore {
       await handle.close();
       handle = undefined;
       await this.dependencies.beforeRename?.(temporaryPath);
+      await this.validateTarget(true);
       await rename(temporaryPath, this.filePath);
       await this.dependencies.afterRename?.();
       if (process.platform !== "win32") {

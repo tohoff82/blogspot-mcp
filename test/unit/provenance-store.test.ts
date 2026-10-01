@@ -160,4 +160,24 @@ describe("owner-controlled provenance sidecar", () => {
     });
     await expect(lstat(file)).rejects.toThrow();
   });
+
+  it("fails closed when provenance target resolution changes immediately before rename", async () => {
+    const redirectedTarget = join(root, "redirected-provenance.json");
+    let validations = 0;
+    const store = new FileProvenanceStore(file, {
+      validateTarget: () => {
+        validations += 1;
+        return validations === 1 ? file : redirectedTarget;
+      }
+    });
+
+    await expect(store.persist(createProvenanceRecord("123", "456", "a", "v"))).resolves.toMatchObject({
+      ok: false,
+      code: "PROVENANCE_WRITE_FAILED"
+    });
+    expect(validations).toBe(2);
+    await expect(lstat(file)).rejects.toThrow();
+    await expect(lstat(redirectedTarget)).rejects.toThrow();
+    expect((await readdir(root)).filter(name => name.includes(".tmp-"))).toHaveLength(0);
+  });
 });
